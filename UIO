@@ -1,0 +1,285 @@
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local Debris = game:GetService("Debris")
+local LocalPlayer = Players.LocalPlayer
+
+if CoreGui:FindFirstChild("VoxelUtilityUI") then
+	CoreGui.VoxelUtilityUI:Destroy()
+end
+
+local espEnabled = false
+local isMeteorRunning = false
+
+-- ฟังก์ชัน ESP
+local function applyHighlight(character)
+	if not character then return end
+	local existing = character:FindFirstChild("VoxelESP_Highlight")
+	if espEnabled then
+		if not existing then
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "VoxelESP_Highlight"
+			highlight.FillColor = Color3.fromRGB(255, 60, 60)
+			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+			highlight.FillTransparency = 0.5
+			highlight.OutlineTransparency = 0
+			highlight.Adornee = character
+			highlight.Parent = character
+		end
+	else
+		if existing then
+			existing:Destroy()
+		end
+	end
+end
+
+local function updateAllESP()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			applyHighlight(player.Character)
+		end
+	end
+end
+
+local function setupPlayer(player)
+	if player == LocalPlayer then return end
+	player.CharacterAdded:Connect(function(char)
+		char:WaitForChild("HumanoidRootPart", 10)
+		applyHighlight(char)
+	end)
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+	setupPlayer(player)
+end
+Players.PlayerAdded:Connect(setupPlayer)
+
+-- ฟังก์ชันรีเซ็ตเลือดฝั่ง Local (มีผลเฉพาะหน้าจอเครื่องเรา)
+local function refillLocalHealth()
+	local char = LocalPlayer.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		if humanoid.MaxHealth <= 0 then
+			humanoid.MaxHealth = 100
+		end
+		humanoid.Health = humanoid.MaxHealth
+	end
+end
+
+-- สร้างหน้าต่าง UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "VoxelUtilityUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local BannerLabel = Instance.new("TextLabel")
+BannerLabel.Size = UDim2.new(0, 320, 0, 48)
+BannerLabel.Position = UDim2.new(0.5, -160, 0.12, 0)
+BannerLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+BannerLabel.BackgroundTransparency = 0.15
+BannerLabel.Text = "meteor shower!"
+BannerLabel.TextColor3 = Color3.fromRGB(255, 190, 50)
+BannerLabel.Font = Enum.Font.GothamBlack
+BannerLabel.TextSize = 24
+BannerLabel.Visible = false
+BannerLabel.Parent = ScreenGui
+
+local BannerCorner = Instance.new("UICorner")
+BannerCorner.CornerRadius = UDim.new(0, 10)
+BannerCorner.Parent = BannerLabel
+
+-- ฟังก์ชันฝนดาวตกแบบตกถี่ + ระเบิดบล็อกฉาก (Local Visual - ไม่ได้คิลใน Server)
+local function triggerLocalMeteorShower()
+	if isMeteorRunning then return end
+	isMeteorRunning = true
+
+	BannerLabel.Visible = true
+	task.delay(3.5, function()
+		if BannerLabel then
+			BannerLabel.Visible = false
+		end
+	end)
+
+	local endTime = os.clock() + 10
+	task.spawn(function()
+		while os.clock() < endTime do
+			for i = 1, 3 do
+				local char = LocalPlayer.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root then
+					local offsetX = math.random(-95, 95)
+					local offsetZ = math.random(-95, 95)
+					local targetPos = root.Position + Vector3.new(offsetX, 0, offsetZ)
+					local spawnPos = targetPos + Vector3.new(math.random(-25, 25), 110, math.random(-25, 25))
+
+					local meteor = Instance.new("Part")
+					meteor.Shape = Enum.PartType.Ball
+					meteor.Size = Vector3.new(4, 4, 4)
+					meteor.Material = Enum.Material.Neon
+					meteor.Color = Color3.fromRGB(255, 95, 15)
+					meteor.Position = spawnPos
+					meteor.Anchored = false
+					meteor.CanCollide = false
+					meteor.Parent = workspace
+
+					local bodyVel = Instance.new("BodyVelocity")
+					bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+					bodyVel.Velocity = (targetPos - spawnPos).Unit * 110
+					bodyVel.Parent = meteor
+
+					Debris:AddItem(meteor, 2.5)
+
+					task.delay(0.85, function()
+						if meteor and meteor.Parent then
+							local impactPos = meteor.Position
+							local exp = Instance.new("Explosion")
+							exp.Position = impactPos
+							exp.BlastRadius = 18
+							exp.BlastPressure = 500000
+							exp.DestroyJointRadiusPercent = 1
+							exp.Parent = workspace
+
+							local regionParts = workspace:GetPartBoundsInRadius(impactPos, 18)
+							for _, part in ipairs(regionParts) do
+								if part:IsA("BasePart") and not part.Locked and part.Size.Magnitude < 60 then
+									if not (LocalPlayer.Character and part:IsDescendantOf(LocalPlayer.Character)) then
+										part.Anchored = false
+										part:BreakJoints()
+									end
+								end
+							end
+
+							meteor:Destroy()
+						end
+					end)
+				end
+			end
+			task.wait(0.15)
+		end
+		isMeteorRunning = false
+	end)
+end
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 235, 0, 240)
+MainFrame.Position = UDim2.new(0.5, -117, 0.25, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -30, 0, 32)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Voxel Front Helper"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = MainFrame
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 26, 0, 26)
+CloseBtn.Position = UDim2.new(1, -29, 0, 3)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 13
+CloseBtn.Parent = MainFrame
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+local EspBtn = Instance.new("TextButton")
+EspBtn.Size = UDim2.new(1, -20, 0, 38)
+EspBtn.Position = UDim2.new(0, 10, 0, 40)
+EspBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
+EspBtn.Text = "ESP ตำแหน่งศัตรู: ปิด"
+EspBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+EspBtn.Font = Enum.Font.GothamSemibold
+EspBtn.TextSize = 13
+EspBtn.Parent = MainFrame
+
+local EspCorner = Instance.new("UICorner")
+EspCorner.CornerRadius = UDim.new(0, 6)
+EspCorner.Parent = EspBtn
+
+local HealBtn = Instance.new("TextButton")
+HealBtn.Size = UDim2.new(1, -20, 0, 38)
+HealBtn.Position = UDim2.new(0, 10, 0, 86)
+HealBtn.BackgroundColor3 = Color3.fromRGB(40, 150, 100)
+HealBtn.Text = "รีเซ็ตเลือดเต็มหลอด (Local)"
+HealBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+HealBtn.Font = Enum.Font.GothamSemibold
+HealBtn.TextSize = 13
+HealBtn.Parent = MainFrame
+
+local HealCorner = Instance.new("UICorner")
+HealCorner.CornerRadius = UDim.new(0, 6)
+HealCorner.Parent = HealBtn
+
+local MeteorBtn = Instance.new("TextButton")
+MeteorBtn.Size = UDim2.new(1, -20, 0, 38)
+MeteorBtn.Position = UDim2.new(0, 10, 0, 132)
+MeteorBtn.BackgroundColor3 = Color3.fromRGB(210, 105, 25)
+MeteorBtn.Text = "ฝนดาวตกถล่มตึก (10 วิ)"
+MeteorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MeteorBtn.Font = Enum.Font.GothamSemibold
+MeteorBtn.TextSize = 13
+MeteorBtn.Parent = MainFrame
+
+local MeteorCorner = Instance.new("UICorner")
+MeteorCorner.CornerRadius = UDim.new(0, 6)
+MeteorCorner.Parent = MeteorBtn
+
+local RefreshBtn = Instance.new("TextButton")
+RefreshBtn.Size = UDim2.new(1, -20, 0, 36)
+RefreshBtn.Position = UDim2.new(0, 10, 0, 178)
+RefreshBtn.BackgroundColor3 = Color3.fromRGB(45, 110, 180)
+RefreshBtn.Text = "รีเฟรช ESP"
+RefreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+RefreshBtn.Font = Enum.Font.GothamSemibold
+RefreshBtn.TextSize = 13
+RefreshBtn.Parent = MainFrame
+
+local RefreshCorner = Instance.new("UICorner")
+RefreshCorner.CornerRadius = UDim.new(0, 6)
+RefreshCorner.Parent = RefreshBtn
+
+EspBtn.MouseButton1Click:Connect(function()
+	espEnabled = not espEnabled
+	if espEnabled then
+		EspBtn.Text = "ESP ตำแหน่งศัตรู: เปิด"
+		EspBtn.BackgroundColor3 = Color3.fromRGB(45, 160, 80)
+	else
+		EspBtn.Text = "ESP ตำแหน่งศัตรู: ปิด"
+		EspBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
+	end
+	updateAllESP()
+end)
+
+HealBtn.MouseButton1Click:Connect(function()
+	refillLocalHealth()
+end)
+
+MeteorBtn.MouseButton1Click:Connect(function()
+	triggerLocalMeteorShower()
+end)
+
+RefreshBtn.MouseButton1Click:Connect(function()
+	updateAllESP()
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+	espEnabled = false
+	updateAllESP()
+	ScreenGui:Destroy()
+end)
